@@ -1,25 +1,5 @@
-#################
-# AffyGG Script #
-#################
-# Only original CEL files are required
-# Batch groups represent RNA synthesis groupings
-
-# cis.buffer allows user to specify the Mb range that defines a cis QTL
-# It will then look for the peak linkage markers within that range of the gene
-# for creating the probe plot and executing the probe elimination analysis
-# If cis.buffer is Null it will search genome wide
-
-# probeset: character, probeset analysis will be performed on.
-
-# genotype: csv file. Row names=marker names, Col1=Chr, Col2=Mb, remaing columns
-# contain genotypes for individual strains
-
-# strain: character, "lxs" or "bxd", used to select proper gene annotations
-# cel.dir: character, contains directory location
-# label: character object tacked on to results folder and other output
-# batch: needs to be implented. Took out because caused errors on bach.
-
-falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.buffer, batch) {
+falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, batch) {
+	
   print.time<-function(){format(Sys.time(),"%D %l:%M %p")}
 	writeLines(paste("Analysis started: ",print.time(), sep=""))
 	
@@ -29,8 +9,8 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	}
 
 	# Load necessary libraries
+	require(affy)
 	require(affyGG)
-	require(org.Mm.eg.db)
 	chrs<-c(1:19,"X")
 
 	# Convert strain to uppercase
@@ -45,20 +25,9 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
       mb=geno[,grep("mb", colnames(geno), ignore.case=TRUE)],
       row.names=rownames(geno))
   } else {
-      stop("Genotype file missing marker position columns.")
+      stop("Genotype file missing marker position columns: Chr and/or Mb.")
       }
 	  
-	# Add gmb to markerPos
-	chrLengths<-org.Mm.egCHRLENGTHS
-	chrLengths<-chrLengths[names(chrLengths) %in% chrs]/1000000
-	chrOffsets<-c(0,cumsum(chrLengths)[1:19])
-	names(chrOffsets)=chrs
-	
-	markerPos<-cbind(markerPos,gmb=markerPos$mb)
-	for(i in 1:length(chrs)){
-		markerPos$gmb[markerPos$chr==chrs[i]]<-markerPos$gmb[markerPos$chr==chrs[i]]+chrOffsets[i]
-	}
-	
 	# Create genotype dataframe without marker positions
 	geno<-data.frame(geno[,grep(strain,colnames(geno))])
   
@@ -72,33 +41,71 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	geno.mat<-apply(geno, MARGIN=2, FUN=function(x) 
 			ifelse(x==alleles[1],1,	ifelse(x==alleles[2],2,3)))
 
-	# LXS Data
-	############
-	writeLines("Loading data...")
+	# Read in CEL files to determine chip type
+	writeLines("Reading in CEL files...")
 	writeLines(print.time())
-	if (strain=='LXS') {
+	cel.names<-list.celfiles(cel.dir)
+	affy.object<-ReadAffy(celfile.path=cel.dir, filenames=cel.names)
+	array.type<-cdfName(affy.object)
+	cdf.name<-cleancdfname(array.name)
+	array.name<-sub("cdf","",cdf.name)
 
-    # Load webqtl probeset annotations
-    chip.annot<-read.csv(file="/home/wolenar/RI_Datasets/LXS_datasets/webqtl_mouse430a2_annotations.csv",
-      row.names=1)
-		# Load chip database
-		library(mouse430a2.db)
-		# Get gene symbol
-		gene.sym<-chip.annot[probeset, "Symbol"]
-		# Get full gene description
-		gene.description<-chip.annot[probeset, "Description"]
-		# Get gene's chromosomal location
-		gene.chr<-as.numeric(as.character(chip.annot[probeset, "Chr"]))
-		# Get gene's chromosomal and genomic location
-		gene.mb<-as.numeric(as.character(chip.annot[probeset, "Mb"]))
+	# Load array specific probe and annotation data from bioconductor
+	#################################################################
+	writeLines("Loading sequence and annotation data...")
+	writeLines(print.time())
+
+	# Load array probe sequence info
+	require(package=paste(array.name,"probe",sep=""), character.only=TRUE)
+	probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]	
+	
+	test<-eval(as.name(paste(array.name,"probe",sep="")))
+	
+	probes.pos<-data.frame(subset(eval(as.name(paste(array.name,"probe",sep=""))),
+		subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
+	probes.pos<-as.numeric(probes.pos[,1])
+
+	# Load array annotation data
+	require(package=paste(array.name,".db",sep=""), character.only=TRUE)
+	# Gene symbol
+	gene.sym<-get(probeset, envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
+	# If no gene symbol is available just use probeset ID
+	if(is.na(gene.sym)){
+		writeLines(paste("No gene symbol available for",probeset))
+		gene.sym<-probeset
+	}
+	# Get full gene name
+	gene.name<-
+		get(probeset, envir=eval(as.name(paste(array.name,"GENENAME",sep=""))))
+	# Get gene's chromosomal location
+	gene.chr<-
+		get(probeset, envir=eval(as.name(paste(array.name,"CHR",sep=""))))
+	# Get gene's chromosomal start location
+	gene.start<-
+		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))
+	# Get gene's chromosomal stop location
+	gene.end<-
+		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))
+
+	# Calculate gigabases
+	########################	
+	# Load chromosome lengths
+	chrLengths<-eval(as.name(paste(array.name,"CHRLENGTHS",sep="")))
+	chrLengths<-chrLengths[names(chrLengths) %in% chrs]/1000000
+	chrOffsets<-c(0,cumsum(chrLengths)[1:19])
+	names(chrOffsets)=chrs
 		gene.gmb<-as.numeric(as.character(chip.annot[probeset, "GMb"]))
-		# Load chip probe info and get probe positions
-		library(mouse430a2probe)
-		probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]
-		}
 		
+	# Add GMb to markerPos
+	markerPos<-cbind(markerPos,gmb=markerPos$mb)
+	for(i in 1:length(chrs)){
+		markerPos$gmb[markerPos$chr==chrs[i]] <-
+			markerPos$gmb[markerPos$chr==chrs[i]]+chrOffsets[i]
+	}
+		
+
 	# Prefix to add to all output files
-	results.prefix<-paste(gene.sym, probeset, strain, label, sep="_")
+	results.prefix<-paste(gene.sym, probeset, label, sep="_")
 
 	# Check to make sure annotation information was available
 	# for current probeset. If it's not, prompt user to enter it.
@@ -240,26 +247,33 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	writeLines("Creating plots...")
 	writeLines(print.time())
 	
-	pdf(paste(results.prefix,"probePlot.pdf", sep="_"), height = 8, width = 10.5)
-	myprobePlot(traits=traits, probeset=probeset, marker=peak.marker, 
+	pdf(paste(results.prefix,"probePlot.pdf", sep="_"), 
+		height = 8, width = 10.5)
+	mod.probePlot(traits=traits, probeset=probeset, marker=peak.marker, 
 		genotypes=geno.mat, alleles=alleles, probes.pos=probes.pos)
 	dev.off()
 
 	# Create custom probe-level QTL plot
-	pdf(paste(results.prefix,"probe-level_qtlPlot.pdf", sep="_"), height = 8, width = 10.5)
-	myprobeQTLplot(probeset=probeset, probeQtlProfiles=qtlmap.probe, markerPos=markerPos, chrOffsets=chrOffsets)
+	pdf(paste(results.prefix,"probe-level_qtlPlot.pdf", sep="_"), 
+		height = 8, width = 10.5)
+	mod.probeQTLplot(probeset=probeset, probeQtlProfiles=qtlmap.probe, 
+		markerPos=markerPos, chrOffsets=chrOffsets)
 	dev.off()
 
 	# Create custom probeset QTL interaction plot
-	pdf(paste(results.prefix, "probeset_interaction_qtlPlot.pdf", sep="_"), height = 8, width = 10.5)
-	myQTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.Probeset, markerPos=markerPos, 
+	pdf(paste(results.prefix, "probeset_interaction_qtlPlot.pdf", sep="_"), 
+		height = 8, width = 10.5)
+	mod.QTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.Probeset,
+		markerPos=markerPos, 
 		chrOffsets=chrOffsets, gene.gmb=gene.gmb, plot.int=TRUE)
 	dev.off()
 	
 	# Create custom probeset QTLplot
-	pdf(paste(results.prefix, "probeset_qtlPlot.pdf", sep="_"), height = 8, width = 10.5)
-	myQTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.Probeset, markerPos=markerPos, 
-		chrOffsets=chrOffsets, gene.gmb=gene.gmb, plot.int=FALSE, plot.sig=TRUE)
+	pdf(paste(results.prefix, "probeset_qtlPlot.pdf", sep="_"), 
+		height = 8, width = 10.5)
+	mod.QTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.Probeset,
+		markerPos=markerPos, chrOffsets=chrOffsets, gene.gmb=gene.gmb, 
+		plot.int=FALSE, plot.sig=TRUE)
 	dev.off()
 
 	writeLines(paste("Analysis finished: ", print.time(), sep=""))

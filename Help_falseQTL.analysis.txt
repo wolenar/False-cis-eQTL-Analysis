@@ -4,6 +4,11 @@ False QTL Analysis Script #
 Aaron Wolen #
 #############
 
+DEPENDENCIES
+-affyGG
+-affy
+
+
 DESCRIPTION
 This script is just a wrapper for the affyGG package by Ritsert Jansen, meant to make the analysis more convenient for working with eQTLs generated using RI panels of mice such as the LXS and BXD. 
 
@@ -30,3 +35,4 @@ label
 Optional character object added to results folder and other output. 
 
 DETAILS
+The specific Affymetrix GeneChip type is determined by the script and used to load the proper probe sequence and probeset annotation data. Currently only Mouse 430 2.0 and Mouse 430A 2.0 chips are supported. 
