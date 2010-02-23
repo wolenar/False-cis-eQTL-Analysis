@@ -1,27 +1,50 @@
 probeset<-"1428600_at"
-geno.file<-"/Users/milesg5users/Dropbox/MilesLab Share/RI Datasets/BXD datasets/BXD Genotype data/BXD Genotypes.csv"
-cel.dir<-"/Users/milesg5users/Documents/Aaron/CEL_files/BXD CEL Files/PFC Saline"
-
+geno.file<-"/home/aaron/Dropbox/MilesLab Share/RI Datasets/BXD datasets/BXD Genotype data/BXD Genotypes.csv"
+#cel.dir<-"/Users/milesg5users/Documents/Aaron/CEL_files/BXD CEL Files/PFC Saline"
+cel.dir<-'/media/F82823B028236CB6/Users/Aaron Wolen/Documents/VCU/Miles Lab/BXD CEL Files/PFC Saline'
+label<-"test"
 strain<-"bxd"
 # Currently strain is only necessary to cidentify which columns in 
 # genotype file contain actual data
 
-falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.buffer, batch) {
-	
-	print.time<-function(){paste("\n",format(Sys.time(),"%D %l:%M %p"),sep="")}
-	writeLines(paste(print.time(), "Analysis started..."))
-	
-	# Set batch to null if none is provided
-	if(missing(batch)){
-		batch<-NULL
+falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label, 
+						cis.buffer=5, batch=NULL) {
+	######################
+	# Functions          #
+	######################
+	# RMA Preprocessing
+	mod.rma.preprocessing<-function(A){
+		A2 <- bg.correct.rma(A)
+		A3 <- normalize.AffyBatch.quantiles(A2)
+		pmperprobe<-cbind(probeset=probeNames(A3), 
+			round(log2(data.frame(pm(A2))), 3))
+		return(pmperprobe)
 	}
+	
+	# Print current time
+	print.time<-function(){paste("\n",format(Sys.time(),"%D %l:%M %p"),sep="")}
+	
+	# Convert nucleotides to megabases
+	toMb<-function(x){
+		return(x/1000000)
+	}
+	
+	######################
+	# Main Program       #
+	######################
+	
+	# Variables
+	######################
+	
+	writeLines(paste(print.time(), "Analysis started..."))
 
 	# Load necessary libraries
 	require(affy)
 	require(affyGG)
+	
+	
 	chrs<-c(1:19,"X")
 
-	# Convert strain to uppercase
 	strain<-toupper(strain)
 
 	# Load genotype data
@@ -29,9 +52,8 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 
 	# Extract marker positions from genotype data
 	if(length(grep("chr", colnames(geno), ignore.case=TRUE)>0)){
-     markerPos<-data.frame(chr=geno[,grep("chr", colnames(geno), ignore.case=TRUE)],
-      mb=geno[,grep("mb", colnames(geno), ignore.case=TRUE)],
-      row.names=rownames(geno))
+	     markerPos<-data.frame(chr=geno[,grep("chr", colnames(geno), ignore.case=TRUE)], 
+	     mb=geno[,grep("mb", colnames(geno), ignore.case=TRUE)], row.names=rownames(geno))
   } else {
       stop("\nGenotype file missing marker position columns: Chr and/or Mb.")
       }
@@ -82,8 +104,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 
 	# Load array probe sequence info
 	require(package=probe.pkg,character.only=TRUE, quietly=TRUE)
-	probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]
-	
+	# Extract probe positions for probeset
 	probes.pos<-data.frame(subset(eval(as.name(probe.pkg)),
 		subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
 	probes.pos<-as.numeric(probes.pos[,1])
@@ -104,20 +125,26 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	gene.chr<-
 		get(probeset, envir=eval(as.name(paste(array.name,"CHR",sep=""))))
 	# Get gene's chromosomal start location
-	gene.start<-
+	gene.start.mb<-
 		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))
+	gene.strand<-ifelse(gene.start.mb[1]<0, "-", "+")
+	gene.start.mb<-toMb(abs(gene.start.mb))
 	# Get gene's chromosomal stop location
-	gene.end<-
+	gene.end.mb<-
 		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))
+	gene.end.mb<-toMb(abs(gene.end.mb))
 
 	# Calculate gigabases
 	########################	
 	# Load chromosome lengths
 	chrLengths<-eval(as.name(paste(array.name,"CHRLENGTHS",sep="")))
-	chrLengths<-chrLengths[names(chrLengths) %in% chrs]/1000000
+	chrLengths<-toMb(chrLengths[names(chrLengths) %in% chrs])
 	chrOffsets<-c(0,cumsum(chrLengths)[1:19])
 	names(chrOffsets)=chrs
-		gene.gmb<-as.numeric(as.character(chip.annot[probeset, "GMb"]))
+	
+	# Gene's genomic location
+	gene.start.gmb <- gene.start.mb+chrOffsets[gene.chr]
+	gene.end.gmb <- gene.end.mb+chrOffsets[gene.chr]
 		
 	# Add GMb to markerPos
 	markerPos<-cbind(markerPos,gmb=markerPos$mb)
@@ -130,29 +157,12 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	# Prefix to add to all output files
 	results.prefix<-paste(gene.sym, probeset, label, sep="_")
 
-	# Check to make sure annotation information was available
-	# for current probeset. If it's not, prompt user to enter it.
-	#if(is.na(gene.sym)==TRUE) {
-	#	system("printf '\a'")
-	#	gene.sym<-readline(paste("I'm not familiar with ",probeset,
-	#			". Please enter its gene name here: ",sep=""))
-	#	}
-
-	#if(is.na(gene.mb)==TRUE) {
-	#	system("printf '\a'")
-	#	gene.chr<-readline(paste("What chromosome is ",probeset,
-	#			" located on? ",sep=""))
-
-	#	gene.mb<-readline(paste("And where is ", probeset,
-	#			" located on chromosome ", chr, " (eg 74324567)? ",sep=""))
-	#	}
 
 	# Create a new folder in wd to store results of analysis
 	# then set that as the working directory
 	results.folder<-paste(results.prefix, "results", sep="_")
 	system(paste("mkdir ", results.folder, sep=""))
 	setwd(results.folder)
-	
 	
 	
 	# Reconciling genotype data and celfiles strains
@@ -178,7 +188,8 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	# RMA Preprocessing
 	###########################
 	writeLines(paste(print.time(),"Calculating probe signals..."))
-	probesignals<-rma.preprocessing(cel.dir, celfiles)
+	
+	probesignals<-mod.rma.preprocessing(affy.object)
 	
 	# Select probe-level data for one probe set
 	traits <- as.matrix(probesignals[probesignals$probeset==probeset,2:ncol(probesignals)])
@@ -196,8 +207,8 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	qtlmap.probe<-cbind(qtlmap.probe,minlog10pmarkerperprobe=-log10(qtlmap.probe[,4]))
 
 	# Create spread sheet with probe-level QTL analysis results
-	write.table(qtlmap.probe, file=paste(results.prefix, "probe_level_QTL_results.csv", sep="_"),
-				sep=",", col.names=TRUE, row.names=FALSE)
+	write.csv(qtlmap.probe, file=paste(results.prefix, "probe_level_QTL_results.csv", sep="_"),
+				col.names=TRUE, row.names=FALSE)
 
 	# Perform QTL analysis on Probeset-level
 	########################################
@@ -211,8 +222,8 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 		minlog10pinteraction=intProbeset)
 
 	# Create spread sheet with probeset-level QTL analysis results
-	write.table(qtlmap.Probeset, file=paste(results.prefix, "probeset_QTL_results.csv", sep="_"),
-				sep=",", col.names=TRUE, row.names=FALSE)
+	write.csv(qtlmap.Probeset, file=paste(results.prefix, "probeset_QTL_results.csv", sep="_"),
+				col.names=TRUE, row.names=FALSE)
 
 	# Identify marker where qtlProbeset is highest
 	###############################################
@@ -265,6 +276,9 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	#print("Saving workspace...", sep="")
 	#workspace.name<-paste(gene.sym,"_",treatment,"_affyGG.RData", sep="")
 	#save.image(file=workspace.name)
+	
+	# Export data
+	########################
 
 	# Plots
 	########
@@ -299,4 +313,5 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.bu
 	dev.off()
 
 	writeLines(paste(print.time(),"Analysis complete. Huzzah!"))
+	
 }
