@@ -4,6 +4,9 @@ geno.file<-"/home/aaron/Dropbox/MilesLab Share/RI Datasets/BXD datasets/BXD Geno
 cel.dir<-'/media/F82823B028236CB6/Users/Aaron Wolen/Documents/VCU/Miles Lab/BXD CEL Files/PFC Saline'
 label<-"test"
 strain<-"bxd"
+
+qtlmap.probe<-read.csv(file="")
+
 # Currently strain is only necessary to cidentify which columns in 
 # genotype file contain actual data
 
@@ -126,12 +129,12 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 		get(probeset, envir=eval(as.name(paste(array.name,"CHR",sep=""))))
 	# Get gene's chromosomal start location
 	gene.start.mb<-
-		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))
-	gene.strand<-ifelse(gene.start.mb[1]<0, "-", "+")
+		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))[1]
+	gene.strand<-ifelse(gene.start.mb<0, "-", "+")
 	gene.start.mb<-toMb(abs(gene.start.mb))
 	# Get gene's chromosomal stop location
 	gene.end.mb<-
-		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))
+		get(probeset, envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
 	gene.end.mb<-toMb(abs(gene.end.mb))
 
 	# Calculate gigabases
@@ -145,6 +148,10 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 	# Gene's genomic location
 	gene.start.gmb <- gene.start.mb+chrOffsets[gene.chr]
 	gene.end.gmb <- gene.end.mb+chrOffsets[gene.chr]
+		
+	# Gene's transcription start location
+	gene.tx.mb<-ifelse(gene.strand=="+", gene.start.mb, gene.end.mb)	
+	gene.tx.gmb<-gene.tx.mb+chrOffsets[gene.chr]
 		
 	# Add GMb to markerPos
 	markerPos<-cbind(markerPos,gmb=markerPos$mb)
@@ -181,7 +188,6 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 	# Exclude strains with no available celfiles
 	geno<-geno[,colnames(geno) %in% names(keep.strains)]
 	geno.mat<-geno.mat[,colnames(geno.mat) %in% names(keep.strains)]
-	
 	writeLines(paste("\n", ncol(geno), 
 		"strains from genotype data file have corresponding CEL files.\n"))
   
@@ -193,7 +199,7 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 	
 	# Select probe-level data for one probe set
 	traits <- as.matrix(probesignals[probesignals$probeset==probeset,2:ncol(probesignals)])
-	colnames(traits)=strains
+	colnames(traits)=names(keep.strains)
 	rownames(traits)=paste(probeset,1:nrow(traits),sep="")
 	write.csv(traits, file=paste(results.prefix, "probesignals.csv",sep="_"))
 	
@@ -203,56 +209,59 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 	# pmarkerperprobe for each probe in a probe-set at all markers
 	writeLines(paste(print.time(),"Probe-level QTL analysis..."))
 	qtlmap.probe<-qtlMap.xProbe(genotypes=geno.mat, traits=traits, batch=batch)
+	## 8.17 min on quad-core desktop
 	# Update data frame to include -log10 pmarker per probe values for mapping
 	qtlmap.probe<-cbind(qtlmap.probe,minlog10pmarkerperprobe=-log10(qtlmap.probe[,4]))
-
 	# Create spread sheet with probe-level QTL analysis results
-	write.csv(qtlmap.probe, file=paste(results.prefix, "probe_level_QTL_results.csv", sep="_"),
-				col.names=TRUE, row.names=FALSE)
+	write.csv(qtlmap.probe, file=paste(results.prefix, "probe_level_QTL_results.csv", sep="_"))
 
 	# Perform QTL analysis on Probeset-level
 	########################################
 	writeLines(paste(print.time(),"ProbeSet-level QTL analysis..."))
-	qtlmap.Probeset<-qtlMap.xProbeSet(genotypes=geno.mat, traits=traits, batch=batch)
-	qtlProbeset <- -log10(qtlmap.Probeset$pmarker)
-	intProbeset <- -log10(qtlmap.Probeset$pinteraction)
+	qtlmap.probeset<-qtlMap.xProbeSet(genotypes=geno.mat, traits=traits, batch=batch)
+	## 4.5 min on quad-core desktop
+	qtlProbeset <- -log10(qtlmap.probeset$pmarker)
+	intProbeset <- -log10(qtlmap.probeset$pinteraction)
 
 	# Update data frame to include the -log10 values for mapping
-	qtlmap.Probeset<-cbind(qtlmap.Probeset, minlog10pmarker=qtlProbeset,
+	qtlmap.probeset<-cbind(qtlmap.probeset, minlog10pmarker=qtlProbeset,
 		minlog10pinteraction=intProbeset)
 
 	# Create spread sheet with probeset-level QTL analysis results
-	write.csv(qtlmap.Probeset, file=paste(results.prefix, "probeset_QTL_results.csv", sep="_"),
-				col.names=TRUE, row.names=FALSE)
+	write.csv(qtlmap.probeset, file=paste(results.prefix, "probeset_QTL_results.csv", sep="_"))
 
 	# Identify marker where qtlProbeset is highest
 	###############################################
-	# If cis.buffer is NULL search entire genome
-	# Otherwise limit search to cisrange of gene
-	if (is.null("cis.buffer")) {
-		peak.marker <- as.character(qtlmap.Probeset$marker[qtlmap.Probeset$pmarker == min(qtlmap.Probeset$pmarker)])
-		}
+	# If there's a tie for peak marker, select the marker closest to the genes
+	# transcription start location	
 
-	if (!is.null("cis.buffer")) {
-		# Identify markers inside the cis QTL range
-		# Create dataframe with only markerPos from probeset's home chr
-		markerPos.chr<-subset(markerPos, subset=markerPos$chr==gene.chr)
-		cis.markers<-rownames(markerPos.chr[markerPos.chr$mb<=gene.mb+cis.buffer &
-		           markerPos.chr$mb>=gene.mb-cis.buffer,])
-		# Create new data frame with markers as rownames
-		cis.qtlmap.Probeset<-data.frame(qtlmap.Probeset[,2:7], row.names=qtlmap.Probeset[,1])
-		# Keep only data for markers inside QTL range
-		cis.qtlmap.Probeset<-subset(cis.qtlmap.Probeset, subset=rownames(cis.qtlmap.Probeset) %in% cis.markers)
-		# Identify peak markers in this range
-		peak.marker <- cis.qtlmap.Probeset[cis.qtlmap.Probeset$pmarker == min(cis.qtlmap.Probeset$pmarker),]
-		peak.marker<-rownames(peak.marker)
-		# If multipe markers are tied for lowest pvalue, 
-		# grab marker nearest to probeset
-		if(length(peak.marker)>1){
-			peak.marker<-peak.marker[which.min(abs(markerPos.chr[peak.marker,"mb"]-gene.mb))]
-			}
-		rm(cis.qtlmap.Probeset)
-		}
+	peak.genome.marker<-as.character(qtlmap.probeset$marker[which
+		(qtlmap.probeset$pmarker==min(qtlmap.probeset$pmarker))])
+		
+	if(length(peak.genome.marker)>1){
+		peak.genome.marker<-peak.genome.marker[
+			which.min(abs(markerPos$gmb[match(peak.genome.marker, 
+			rownames(markerPos))]-gene.tx.gmb))]
+	}
+	
+	# Identify all markers within the specified cis.buffer
+	cis.markers<-subset(markerPos, subset=markerPos$chr==gene.chr & 
+		markerPos$mb >= (gene.tx.mb - cis.buffer) &
+		markerPos$mb <=(gene.tx.mb + cis.buffer))
+	cis.markers<-rownames(cis.markers)
+	
+	# Subset of qtl data containing only cis markers
+	cis.probeset<-qtlmap.probeset[match(cis.markers, qtlmap.probeset$marker),]
+	
+	peak.cis.marker<-as.character(cis.probeset$marker[which
+		(cis.probeset$pmarker==min(cis.probeset$pmarker))])
+	
+	if(length(peak.cis.marker)>1){
+		peak.cis.marker<-peak.cis.marker[
+			which.min(abs(markerPos$gmb[match(peak.cis.marker, 
+			rownames(markerPos))]-gene.tx.gmb))]
+	}
+
 
 	# Get peak marker's location
 	peak.markerPos<-markerPos[peak.marker,]
