@@ -23,7 +23,7 @@ cel.dir
 Directory in which the CEL files are found.
 
 strain
-Character, "lxs" or "bxd", used to select proper gene annotations.
+Character, "lxs" or "bxd", used to identify which columns from genotype file contain strain alleles. 
 
 batch
 (optional) vector with batch numbers in which each individual (e.g. BXD) was processed. Default is NULL. This is passed to affyGG probeElimination function.
@@ -36,3 +36,9 @@ Optional character object added to results folder and other output.
 
 DETAILS
 The specific Affymetrix GeneChip type is determined by the script and used to load the proper probe sequence and probeset annotation data. Currently only Mouse 430 2.0 and Mouse 430A 2.0 chips are supported. 
+
+Strain ID's are scraped from the genotype data file column names and compared with CEL file names in order to match each CEL to its matching genotype data. Therefore, it is important to ensure that strain ID's are formatted the same in both places. Strains will be mistakenly excluded from analysis if, for example, a strain in labeled as BXD01 in the genotype data and BXD1 in the cel file name. 
+
+Note that it is not necessary to remove extraneous information from a CEL file name. Using GREP, the script will identify 021597_NB_032498_BXD1_PFC.CEL just as well as BXD1.CEL. The end of a strain ID is determined by seeking the first non-numeric character after the strain number. 
+
+ sources in order to match a CEL file to its genotype data. 

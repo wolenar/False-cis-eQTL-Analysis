@@ -1,3 +1,4 @@
+probeset<-"1428600_at"
 geno.file<-"/Users/milesg5users/Dropbox/MilesLab Share/RI Datasets/BXD datasets/BXD Genotype data/BXD Genotypes.csv"
 cel.dir<-"/Users/milesg5users/Documents/Aaron/CEL_files/BXD CEL Files/PFC Saline"
 
@@ -5,10 +6,10 @@ strain<-"bxd"
 # Currently strain is only necessary to cidentify which columns in 
 # genotype file contain actual data
 
-falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, batch) {
+falseQTL.analysis<- function(probeset, geno.file, cel.dir, strain, label, cis.buffer, batch) {
 	
-  print.time<-function(){format(Sys.time(),"%D %l:%M %p")}
-	writeLines(paste("Analysis started: ",print.time(), sep=""))
+	print.time<-function(){paste("\n",format(Sys.time(),"%D %l:%M %p"),sep="")}
+	writeLines(paste(print.time(), "Analysis started..."))
 	
 	# Set batch to null if none is provided
 	if(missing(batch)){
@@ -21,7 +22,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 	chrs<-c(1:19,"X")
 
 	# Convert strain to uppercase
-	# strain<-toupper(strain) UNCECESSARY?
+	strain<-toupper(strain)
 
 	# Load genotype data
 	geno<-read.csv(geno.file, row.names=1)
@@ -32,11 +33,12 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
       mb=geno[,grep("mb", colnames(geno), ignore.case=TRUE)],
       row.names=rownames(geno))
   } else {
-      stop("Genotype file missing marker position columns: Chr and/or Mb.")
+      stop("\nGenotype file missing marker position columns: Chr and/or Mb.")
       }
 	  
 	# Create genotype dataframe without marker positions
 	geno<-data.frame(geno[,grep(strain,colnames(geno))])
+	strains<-colnames(geno)
   
 	# Create numeric genotype matrix
 	#################################
@@ -54,31 +56,40 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 			replace(x, list=grep(alleles[i,"allele"], x, ignore.case=TRUE), 
 				values=as.character(i)))
 	}
-
+	geno.mat<-t(geno.mat)
+	
 	# Read in CEL files to determine chip type
-	writeLines("Reading in CEL files...")
-	writeLines(print.time())
+	writeLines(paste(print.time(),"Loading CEL files..."))
 	cel.names<-list.celfiles(cel.dir)
 	affy.object<-ReadAffy(celfile.path=cel.dir, filenames=cel.names)
 	array.type<-cdfName(affy.object)
-	cdf.name<-cleancdfname(array.name)
+	cdf.name<-cleancdfname(array.type)
 	array.name<-sub("cdf","",cdf.name)
 
 	# Load array specific probe and annotation data from bioconductor
 	#################################################################
-	writeLines("Loading sequence and annotation data...")
-	writeLines(print.time())
+	writeLines(paste(print.time(),"Loading sequence and annotation data..."))
+
+	# Bioconductor packages
+	probe.pkg<-paste(array.name,"probe",sep="")
+	annot.pkg<-paste(array.name,".db",sep="")
+
+	# Check for necessary bioconductor packages
+	if(sum(c(probe.pkg, annot.pkg) %in% rownames(installed.packages()))<2){
+		stop(paste("\nMissing required bioconductor package. Please ensure that",
+			probe.pkg, "and", annot.pkg, "are installed before retrying."))
+	}
 
 	# Load array probe sequence info
-	require(package=paste(array.name,"probe",sep=""), character.only=TRUE)
+	require(package=probe.pkg,character.only=TRUE, quietly=TRUE)
 	probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]
 	
-	probes.pos<-data.frame(subset(eval(as.name(paste(array.name,"probe",sep=""))),
+	probes.pos<-data.frame(subset(eval(as.name(probe.pkg)),
 		subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
 	probes.pos<-as.numeric(probes.pos[,1])
 
 	# Load array annotation data
-	require(package=paste(array.name,".db",sep=""), character.only=TRUE)
+	require(package=annot.pkg, character.only=TRUE)
 	# Gene symbol
 	gene.sym<-get(probeset, envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
 	# If no gene symbol is available just use probeset ID
@@ -141,28 +152,32 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 	results.folder<-paste(results.prefix, "results", sep="_")
 	system(paste("mkdir ", results.folder, sep=""))
 	setwd(results.folder)
+	
+	
+	
+	# Reconciling genotype data and celfiles strains
+	################################################
 
-	# Set batch to NULL if batch.factor=FALSE
-	if (!exists("batch")) {
-		batch<-as.null()
-		}
-
-	# Reconciling genotype and celfile strains
-	strains<-colnames(geno)
-	celfiles<-list.celfiles(cel.dir)
-
-	keep.strains<-as.logical()
-	for(i in 1:length(strains)){
-		keep.strains[i]<-length(grep(strains[i], celfiles))==1
-		}
+	keep.strains<-sapply(strains, 
+		FUN=function(x) length(grep(paste(x,"\\D",sep=""), cel.names, perl=TRUE)))
+	# Only keep strains with a matching cel.file
+	keep.strains<-keep.strains[keep.strains>0]
+	# Check to make sure no strains matched multiple cel.files
+	if(sum(keep.strains>1)>0){
+		stop("At least one Strain ID from genotype data file matches more than one CEL file. Please ensure all genotype columns and CEL files are labeled correctly")
+	}
+	
 		
 	# Exclude strains with no available celfiles
-	strains<-strains[keep.strains]
-	geno<-geno[,keep.strains]
-	geno.mat<-geno.mat[,keep.strains]
+	geno<-geno[,colnames(geno) %in% names(keep.strains)]
+	geno.mat<-geno.mat[,colnames(geno.mat) %in% names(keep.strains)]
+	
+	writeLines(paste("\n", ncol(geno), 
+		"strains from genotype data file have corresponding CEL files.\n"))
   
-	writeLines("Calculating probe signals...")
-	writeLines(print.time())
+	# RMA Preprocessing
+	###########################
+	writeLines(paste(print.time(),"Calculating probe signals..."))
 	probesignals<-rma.preprocessing(cel.dir, celfiles)
 	
 	# Select probe-level data for one probe set
@@ -175,8 +190,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 	#####################################
 	# Outputs a data.frame containing Fmarkerperprobe and
 	# pmarkerperprobe for each probe in a probe-set at all markers
-	writeLines("Probe-level QTL Analysis...")
-	writeLines(print.time())
+	writeLines(paste(print.time(),"Probe-level QTL analysis..."))
 	qtlmap.probe<-qtlMap.xProbe(genotypes=geno.mat, traits=traits, batch=batch)
 	# Update data frame to include -log10 pmarker per probe values for mapping
 	qtlmap.probe<-cbind(qtlmap.probe,minlog10pmarkerperprobe=-log10(qtlmap.probe[,4]))
@@ -187,8 +201,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 
 	# Perform QTL analysis on Probeset-level
 	########################################
-	writeLines("Probeset-level QTL Analysis...")
-	writeLines(print.time())
+	writeLines(paste(print.time(),"ProbeSet-level QTL analysis..."))
 	qtlmap.Probeset<-qtlMap.xProbeSet(genotypes=geno.mat, traits=traits, batch=batch)
 	qtlProbeset <- -log10(qtlmap.Probeset$pmarker)
 	intProbeset <- -log10(qtlmap.Probeset$pinteraction)
@@ -239,8 +252,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 
 	# Eliminiate deviating probes using the statisical  model
 	#########################################################
-	writeLines("Performing probe elimination assay...")
-	writeLines(print.time())
+	writeLines(paste(print.time(),"Probe elimination analysis..."))
 	pe <- probeElimination(probesetName=probeset, markerName=peak.marker,
 		genotypes=geno.mat, traits=traits, batch=batch)
 	pe
@@ -256,9 +268,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 
 	# Plots
 	########
-	writeLines("Creating plots...")
-	writeLines(print.time())
-	
+	writeLines(paste(print.time(),"Generating graphs..."))
 	pdf(paste(results.prefix,"probePlot.pdf", sep="_"), 
 		height = 8, width = 10.5)
 	mod.probePlot(traits=traits, probeset=probeset, marker=peak.marker, 
@@ -288,5 +298,5 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 		plot.int=FALSE, plot.sig=TRUE)
 	dev.off()
 
-	writeLines(paste("Analysis finished: ", print.time(), sep=""))
+	writeLines(paste(print.time(),"Analysis complete. Huzzah!"))
 }
