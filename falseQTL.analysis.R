@@ -1,3 +1,10 @@
+geno.file<-"/Users/milesg5users/Dropbox/MilesLab Share/RI Datasets/BXD datasets/BXD Genotype data/BXD Genotypes.csv"
+cel.dir<-"/Users/milesg5users/Documents/Aaron/CEL_files/BXD CEL Files/PFC Saline"
+
+strain<-"bxd"
+# Currently strain is only necessary to cidentify which columns in 
+# genotype file contain actual data
+
 falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, batch) {
 	
   print.time<-function(){format(Sys.time(),"%D %l:%M %p")}
@@ -14,7 +21,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 	chrs<-c(1:19,"X")
 
 	# Convert strain to uppercase
-	strain<-toupper(strain)
+	# strain<-toupper(strain) UNCECESSARY?
 
 	# Load genotype data
 	geno<-read.csv(geno.file, row.names=1)
@@ -31,15 +38,22 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 	# Create genotype dataframe without marker positions
 	geno<-data.frame(geno[,grep(strain,colnames(geno))])
   
-	# Create genotype matrix
-	#########################
-	allele.counts<-table(unlist(unlist(geno)))
+	# Create numeric genotype matrix
+	#################################
+	# Count how many times each unique allele, ignore case
+	allele.counts<-table(toupper(unlist(unlist(geno))))
 	# Sort alleles by frequency.
 	allele.counts<-sort(allele.counts, dec=TRUE)
-	alleles<-names(allele.counts)
+	# Create a key for alleles and their numeric code in the genotype matrix
+	alleles<-data.frame(allele=names(allele.counts), code=1:length(names(allele.counts)))
 	# Replace most common allele with 1's, second most common with 2's, etc...
-	geno.mat<-apply(geno, MARGIN=2, FUN=function(x) 
-			ifelse(x==alleles[1],1,	ifelse(x==alleles[2],2,3)))
+	geno.mat<-geno
+	for(i in 1:nrow(alleles)){
+		geno.mat<-apply(geno.mat, MARGIN=1, FUN=function(x) 
+			#replace(x, list=which(x==alleles[i,"allele"]), values=as.character(i)))
+			replace(x, list=grep(alleles[i,"allele"], x, ignore.case=TRUE), 
+				values=as.character(i)))
+	}
 
 	# Read in CEL files to determine chip type
 	writeLines("Reading in CEL files...")
@@ -57,9 +71,7 @@ falseQTL.analysis<- function(probeset, geno.file, cel.dir, label, cis.buffer, ba
 
 	# Load array probe sequence info
 	require(package=paste(array.name,"probe",sep=""), character.only=TRUE)
-	probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]	
-	
-	test<-eval(as.name(paste(array.name,"probe",sep="")))
+	probes.pos<-mouse430a2probe[mouse430a2probe$Probe.Set.Name==probeset,5]
 	
 	probes.pos<-data.frame(subset(eval(as.name(paste(array.name,"probe",sep=""))),
 		subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
