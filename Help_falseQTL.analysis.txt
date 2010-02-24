@@ -29,7 +29,7 @@ batch
 (optional) vector with batch numbers in which each individual (e.g. BXD) was processed. Default is NULL. This is passed to affyGG probeElimination function.
 
 cis.buffer
-Numeric, allows user to specify the Mb range that defines a cis QTL. It will then look for the peak linkage markers within that range of the gene for creating the probe plot and executing the probe elimination analysis. If cis.buffer is NULL it will search genome wide.
+Numeric, allows user to specify the Mb range that defines a cis QTL. It will then look for the peak linkage markers within that range of the gene for creating the probe plot and executing the probe elimination analysis.
 
 label
 Optional character object added to results folder and other output. 

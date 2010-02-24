@@ -246,12 +246,19 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 	
 	# Identify all markers within the specified cis.buffer
 	cis.markers<-subset(markerPos, subset=markerPos$chr==gene.chr & 
-		markerPos$mb >= (gene.tx.mb - cis.buffer) &
-		markerPos$mb <=(gene.tx.mb + cis.buffer))
+		markerPos$mb >= (gene.start.mb - cis.buffer) &
+		markerPos$mb <=(gene.end.mb + cis.buffer))
 	cis.markers<-rownames(cis.markers)
 	
 	# Subset of qtl data containing only cis markers
 	cis.probeset<-qtlmap.probeset[match(cis.markers, qtlmap.probeset$marker),]
+	
+	# Ensure there is a marker with a pvalue <.05
+	if(sum(cis.probeset$pmarker<=.05)==0){
+		stop(paste("No markers within the specified cis eQTL buffer ",
+		"region are significantly associated with ",
+		probeset,"'s expression.", sep=""), .call=TRUE)
+	}
 	
 	peak.cis.marker<-as.character(cis.probeset$marker[which
 		(cis.probeset$pmarker==min(cis.probeset$pmarker))])
@@ -261,6 +268,9 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 			which.min(abs(markerPos$gmb[match(peak.cis.marker, 
 			rownames(markerPos))]-gene.tx.gmb))]
 	}
+	
+	# Check to see if peak.genome.marker and peak.cis.marker match
+	
 
 
 	# Get peak marker's location
@@ -270,10 +280,10 @@ falseQTL.analysis <- function(probeset, geno.file, cel.dir, strain, label,
 		peak.markerPos,"\n"))
 
 
-	# Eliminiate deviating probes using the statisical  model
-	#########################################################
+	# Perform probe elimination assay
+	####################################
 	writeLines(paste(print.time(),"Probe elimination analysis..."))
-	pe <- probeElimination(probesetName=probeset, markerName=peak.marker,
+	pe <- probeElimination(probesetName=probeset, markerName=peak.genome.marker,
 		genotypes=geno.mat, traits=traits, batch=batch)
 	pe
 	# Create spread sheet with probe-elimination results
