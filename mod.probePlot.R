@@ -72,8 +72,6 @@ mod.probePlot<-function (traits, probeset, marker, genotypes, alleles, probes.po
 		paste(marker, "pos:",marker.loc, "Mb")), 
 		xjust=.5, box.lty=0)
 	}
-
-	#text(10,ylow, paste("Genotypes at", marker),cex=.9, font=3)
 	
 	# Allele legend
 	legend(x="bottomleft", legend=alleles, col=c("blue","red","green"), lty=1, lwd=2,

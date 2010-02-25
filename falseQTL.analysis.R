@@ -317,6 +317,10 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		# Export data needed to recreate probePlot
 		probePlot.input<-as.list(traits, probeset, peak.cis.marker, geno.mat,
 			alleles[,"allele"], probes.pos, gene.tx.mb, markerPos[peak.cis.marker,"mb"])
+			
+		
+			
+		write.csv(probePlot.input, file="probePlot.input.csv")
 
 		# Create custom probe-level QTL plot
 		pdf(paste(results.prefix,"probe-level_qtlPlot.pdf", sep="_"), 
