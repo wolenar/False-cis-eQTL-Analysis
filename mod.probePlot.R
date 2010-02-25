@@ -7,10 +7,14 @@
 # alleles: character vector of all alleles. First two are used to color lines. 
 # probesPos: numeric vector of each probes relative location
 # Script will color lines based on genotype at the QTL marker
-# (1 = ISS, 2 = ILS)
+
+# probeset.loc and marker.loc, optional arguments. If locations are provided for the probeset
+# and associated parker they will be added to graph. 
+
 # or
 # (1=B6, 2=D2, 0=H)
-mod.probePlot<-function (traits, probeset, marker, genotypes, alleles, probes.pos) {
+mod.probePlot<-function (traits, probeset, marker, genotypes, alleles, probes.pos,
+	probeset.loc, marker.loc) {
 	
 	# Get y-axis limits
 	ylow=floor(range(traits)[1])-1
@@ -59,9 +63,15 @@ mod.probePlot<-function (traits, probeset, marker, genotypes, alleles, probes.po
 	matplot(traits, type = "l", main = "", xlab = myxlab, xaxt = "n", 
 		ylab = "log2 intensity", lty = 1, ylim = c(ylow,yhigh), 
 		col = allelecolors, axes=FALSE)
-
+	
 	axis(1, 1:nrow(traits))
 	axis(2)
+	
+	if(exists("probeset.loc") & exists("marker.loc")){
+		legend(x="bottomright", legend=c(paste(probeset,"pos:",probeset.loc,"Mb"), 
+		paste(marker, "pos:",marker.loc, "Mb")), 
+		xjust=.5, box.lty=0)
+	}
 
 	#text(10,ylow, paste("Genotypes at", marker),cex=.9, font=3)
 	
