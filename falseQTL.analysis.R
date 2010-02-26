@@ -36,7 +36,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 	# Load annotation file if available
 	if(!missing(annot.file)){
 		writeLines("\nI see you've provided an annotation file...\n")
-		annot<-read.csv(annot.file, row.names=1)
+		annot<-read.csv(annot.file, row.names=1, as.is=TRUE)
 		annot<-annot[probesets,]
 		print(annot)
 	}
@@ -155,35 +155,45 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 			subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
 		probes.pos<-as.numeric(probes.pos[,1])
 		
-		# Get probeset info from annotation file if provided,
+		# Attempt to get a gene symbol from bioconductor, if NA is
+		# get probeset info from annotation file if provided,
 		# if not query bioconductor data
-		if(exists("annot")){
-			gene.sym<-annot[probeset, "Symbol"]
-			gene.name<-annot[probeset, "description"]
-			gene.chr<-annot[probeset, "Chr"]
-			gene.start.mb<-annot[probeset, "Mb"]
-			# Use bioconductor to see if there's another
-			# probeset for the gene symbol provided by 
-			# the annotation file, if so try to grab additional
-			# info for gene with the alternative probeset
-			alt.probesets<-match(gene.sym,
-				Rkeys(eval(as.name(paste(array.name,"ALIAS2PROBE",sep="")))),nomatch=0)
+
+		
+		if(is.na(get(probeset,envir=eval(as.name(paste(array.name,"SYMBOL",sep="")))))){
+			if(exists("annot")) {
+				gene.sym<-annot[probeset, "Symbol"]
+				print(gene.sym)
+				print(class(gene.sym))
+				gene.name<-annot[probeset, "description"]
+				gene.chr<-annot[probeset, "Chr"]
+				gene.start.mb<-annot[probeset, "Mb"]
+				# Use bioconductor to see if there's another
+				# probeset for the gene symbol provided by 
+				# the annotation file, if so try to grab additional
+				# info for gene with the alternative probeset
+				alt.probesets<-match(gene.sym,
+					Rkeys(eval(as.name(paste(array.name,"ALIAS2PROBE",sep="")))),nomatch=0)
+	
+				if(alt.probesets>0){
+					alt.probeset<-get(gene.sym,
+					envir=eval(as.name(paste(array.name,"ALIAS2PROBE",sep=""))))[1]
+					writeLines(paste("Using", alt.probeset, 
+					"as an alternative probeset for", gene.sym, 
+					"since there is annotation info available for", probeset,
+					"\n This is what's available from your annotation file:\n"))
+					print(annot[as.character(alt.probeset),])
+					gene.end.mb<-get(alt.probeset,
+						envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
+					gene.strand<-ifelse(gene.end.mb<0, "-", "+")
+					gene.end.mb<-toMb(abs(gene.end.mb))
+				}	
 				
-			if(alt.probesets>0){
-				alt.probeset<-get(gene.sym,
-				envir=eval(as.name(paste(array.name,"ALIAS2PROBE",sep=""))))[1]
-				writeLines(paste("Using", alt.probeset, 
-				"as an alternative probeset for", gene.sym, 
-				"since there is annotation info available for", probeset,
-				"\n This is what's available from your annotation file:\n"))
-				print(annot[alt.probeset,])
-				gene.end.mb<-get(alt.probeset,
-					envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
-				gene.strand<-ifelse(gene.end.mb<0, "-", "+")
-				gene.end.mb<-toMb(abs(gene.end.mb))
-			}
-			
-			
+			} else {
+				stop(paste("Bioconductor provides no annotation information for",probeset,
+				"you should include an annotation file as a backup for such an instance."),
+				 call.=FALSE)
+				}
 		} else { 
 			# Gene symbol
 			gene.sym<-get(probeset,
