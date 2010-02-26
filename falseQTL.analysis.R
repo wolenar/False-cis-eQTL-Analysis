@@ -166,8 +166,14 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 				print(gene.sym)
 				print(class(gene.sym))
 				gene.name<-annot[probeset, "description"]
-				gene.chr<-annot[probeset, "Chr"]
+				print(gene.name)
+				print(class(gene.name))
+				gene.chr<-as.numeric(as.character(annot[probeset, "Chr"]))
+				print(gene.chr)
+				print(class(gene.chr))
 				gene.start.mb<-annot[probeset, "Mb"]
+				print(gene.start.mb)
+				print(class(gene.start.mb))
 				# Use bioconductor to see if there's another
 				# probeset for the gene symbol provided by 
 				# the annotation file, if so try to grab additional
