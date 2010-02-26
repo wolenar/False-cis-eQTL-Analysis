@@ -1,5 +1,6 @@
+
 falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label, 
-						cis.buffer=5, batch=NULL) {
+						cis.buffer=5, batch=NULL, annot.file) {
 	######################
 	# Functions          #
 	######################
@@ -32,6 +33,13 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 	require(affy)
 	require(affyGG)
 	
+	# Load annotation file if available
+	if(!missing(annot.file)){
+		writeLines("\nI see you've provided an annotation file...\n")
+		annot<-read.csv(annot.file, row.names=1)
+		annot<-annot[probesets,]
+		print(annot)
+	}
 	
 	chrs<-c(1:19,"X")
 
@@ -96,7 +104,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 	geno.mat<-geno.mat[,colnames(geno.mat) %in% names(keep.strains)]
 	writeLines(paste("\n", ncol(geno), 
 		"strains from genotype data file have corresponding CEL files.\n"))
-		
+
 	# RMA Preprocessing
 	###########################
 	writeLines(paste(print.time(),"Calculating probe signals..."))
@@ -147,29 +155,60 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 			subset=Probe.Set.Name==probeset, select=Probe.Interrogation.Position))
 		probes.pos<-as.numeric(probes.pos[,1])
 		
-		# Gene symbol
-		gene.sym<-get(probeset,
-			envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
-		# If no gene symbol is available just use probeset ID
-		if(is.na(gene.sym)){
-			writeLines(paste("No gene symbol available for",probeset))
-			gene.sym<-probeset
+		# Get probeset info from annotation file if provided,
+		# if not query bioconductor data
+		if(exists("annot")){
+			gene.sym<-annot[probeset, "Symbol"]
+			gene.name<-annot[probeset, "description"]
+			gene.chr<-annot[probeset, "Chr"]
+			gene.start.mb<-annot[probeset, "Mb"]
+			# Use bioconductor to see if there's another
+			# probeset for the gene symbol provided by 
+			# the annotation file, if so try to grab additional
+			# info for gene with the alternative probeset
+			alt.probesets<-match(gene.sym,
+				Rkeys(eval(as.name(paste(array.name,"ALIAS2PROBE",sep="")))),nomatch=0)
+				
+			if(alt.probesets>0){
+				alt.probeset<-get(gene.sym,
+				envir=eval(as.name(paste(array.name,"ALIAS2PROBE",sep=""))))[1]
+				writeLines(paste("Using", alt.probeset, 
+				"as an alternative probeset for", gene.sym, 
+				"since there is annotation info available for", probeset,
+				"\n This is what's available from your annotation file:\n"))
+				print(annot[alt.probeset,])
+				gene.end.mb<-get(alt.probeset,
+					envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
+				gene.strand<-ifelse(gene.end.mb<0, "-", "+")
+				gene.end.mb<-toMb(abs(gene.end.mb))
+			}
+			
+			
+		} else { 
+			# Gene symbol
+			gene.sym<-get(probeset,
+				envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
+			# If no gene symbol is available just use probeset ID
+			if(is.na(gene.sym)){
+				writeLines(paste("No gene symbol available for",probeset))
+				gene.sym<-probeset
+			}
+			# Get full gene name
+			gene.name<-get(probeset,
+				envir=eval(as.name(paste(array.name,"GENENAME",sep=""))))
+			# Get gene's chromosomal location
+			gene.chr<-get(probeset,
+				envir=eval(as.name(paste(array.name,"CHR",sep=""))))
+			# Get gene's chromosomal start location
+			gene.start.mb<-get(probeset,
+				envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))[1]
+			gene.strand<-ifelse(gene.start.mb<0, "-", "+")
+			gene.start.mb<-toMb(abs(gene.start.mb))
+			# Get gene's chromosomal stop location
+			gene.end.mb<-get(probeset,
+				envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
+			gene.end.mb<-toMb(abs(gene.end.mb))
 		}
-		# Get full gene name
-		gene.name<-get(probeset,
-			envir=eval(as.name(paste(array.name,"GENENAME",sep=""))))
-		# Get gene's chromosomal location
-		gene.chr<-get(probeset,
-			envir=eval(as.name(paste(array.name,"CHR",sep=""))))
-		# Get gene's chromosomal start location
-		gene.start.mb<-get(probeset,
-			envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))[1]
-		gene.strand<-ifelse(gene.start.mb<0, "-", "+")
-		gene.start.mb<-toMb(abs(gene.start.mb))
-		# Get gene's chromosomal stop location
-		gene.end.mb<-get(probeset,
-			envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
-		gene.end.mb<-toMb(abs(gene.end.mb))
 		
 		# Gene's genomic location
 		gene.start.gmb <- gene.start.mb+chrOffsets[gene.chr]
