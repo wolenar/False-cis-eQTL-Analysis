@@ -250,7 +250,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		if(length(peak.genome.marker)>1){
 			peak.genome.marker<-peak.genome.marker[
 				which.min(abs(markerPos$gmb[match(peak.genome.marker, 
-				rownames(markerPos))]-gene.tx.gmb))]
+				rownames(markerPos))]-gene.start.gmb))]
 		}
 	
 		# Identify all markers within the specified cis.buffer
