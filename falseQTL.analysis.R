@@ -1,4 +1,3 @@
-
 falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label, 
 						cis.buffer=5, batch=NULL, annot.file) {
 	######################
@@ -158,81 +157,38 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		# Attempt to get a gene symbol from bioconductor, if NA is
 		# get probeset info from annotation file if provided,
 		# if not query bioconductor data
-
 		
-		if(is.na(get(probeset,envir=eval(as.name(paste(array.name,"SYMBOL",sep="")))))){
-			if(exists("annot")) {
-				gene.sym<-annot[probeset, "Symbol"]
-				print(gene.sym)
-				print(class(gene.sym))
-				gene.name<-annot[probeset, "description"]
-				print(gene.name)
-				print(class(gene.name))
-				gene.chr<-as.numeric(as.character(annot[probeset, "Chr"]))
-				print(gene.chr)
-				print(class(gene.chr))
-				gene.start.mb<-annot[probeset, "Mb"]
-				print(gene.start.mb)
-				print(class(gene.start.mb))
-				# Use bioconductor to see if there's another
-				# probeset for the gene symbol provided by 
-				# the annotation file, if so try to grab additional
-				# info for gene with the alternative probeset
-				alt.probesets<-match(gene.sym,
-					Rkeys(eval(as.name(paste(array.name,"ALIAS2PROBE",sep="")))),nomatch=0)
-	
-				if(alt.probesets>0){
-					alt.probeset<-get(gene.sym,
-					envir=eval(as.name(paste(array.name,"ALIAS2PROBE",sep=""))))[1]
-					writeLines(paste("Using", alt.probeset, 
-					"as an alternative probeset for", gene.sym, 
-					"since there is annotation info available for", probeset,
-					"\n This is what's available from your annotation file:\n"))
-					print(annot[as.character(alt.probeset),])
-					gene.end.mb<-get(alt.probeset,
-						envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
-					gene.strand<-ifelse(gene.end.mb<0, "-", "+")
-					gene.end.mb<-toMb(abs(gene.end.mb))
-				}	
-				
+		gene.sym<-get(probeset,
+			envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
+		# Get full gene name
+		gene.name<-get(probeset,
+			envir=eval(as.name(paste(array.name,"GENENAME",sep=""))))
+		# Get gene's chromosomal location
+		gene.chr<-get(probeset,
+			envir=eval(as.name(paste(array.name,"CHR",sep=""))))
+		# Get gene's chromosomal start location
+		gene.start.mb<-get(probeset,
+			envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))[1]
+		gene.start.mb<-toMb(abs(gene.start.mb))
+
+		# If bioconductor failed to provide any important information
+		# check for an annotation file provided by user
+		if(sum(is.na(c(gene.sym, gene.chr, gene.start.mb)))>0){
+			if(!exists("annot")){
+				writeLines(paste("\nBioconductor provides no annotation information for",probeset,
+				"you should include an annotation file as a backup for such an instance.",
+				"\nFor now I'll just move on to the next probeset."))
+				next()
 			} else {
-				stop(paste("Bioconductor provides no annotation information for",probeset,
-				"you should include an annotation file as a backup for such an instance."),
-				 call.=FALSE)
-				}
-		} else { 
-			# Gene symbol
-			gene.sym<-get(probeset,
-				envir=eval(as.name(paste(array.name,"SYMBOL",sep=""))))
-			# If no gene symbol is available just use probeset ID
-			if(is.na(gene.sym)){
-				writeLines(paste("No gene symbol available for",probeset))
-				gene.sym<-probeset
-			}
-			# Get full gene name
-			gene.name<-get(probeset,
-				envir=eval(as.name(paste(array.name,"GENENAME",sep=""))))
-			# Get gene's chromosomal location
-			gene.chr<-get(probeset,
-				envir=eval(as.name(paste(array.name,"CHR",sep=""))))
-			# Get gene's chromosomal start location
-			gene.start.mb<-get(probeset,
-				envir=eval(as.name(paste(array.name,"CHRLOC",sep=""))))[1]
-			gene.strand<-ifelse(gene.start.mb<0, "-", "+")
-			gene.start.mb<-toMb(abs(gene.start.mb))
-			# Get gene's chromosomal stop location
-			gene.end.mb<-get(probeset,
-				envir=eval(as.name(paste(array.name,"CHRLOCEND",sep=""))))[1]
-			gene.end.mb<-toMb(abs(gene.end.mb))
+				gene.sym<-annot[probeset, "Symbol"]
+				gene.name<-annot[probeset, "description"]
+				gene.chr<-as.numeric(as.character(annot[probeset, "Chr"]))
+				gene.start.mb<-as.numeric(as.character(annot[probeset, "Mb"]))
+			}	
 		}
 		
 		# Gene's genomic location
 		gene.start.gmb <- gene.start.mb+chrOffsets[gene.chr]
-		gene.end.gmb <- gene.end.mb+chrOffsets[gene.chr]
-		
-		# Gene's transcription start location
-		gene.tx.mb<-ifelse(gene.strand=="+", gene.start.mb, gene.end.mb)	
-		gene.tx.gmb<-gene.tx.mb+chrOffsets[gene.chr]
 
 		# Prefix to add to all output files
 		results.prefix<-paste(gene.sym, probeset, label, sep="_")
@@ -300,7 +256,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		# Identify all markers within the specified cis.buffer
 		cis.markers<-subset(markerPos, subset=markerPos$chr==gene.chr & 
 			markerPos$mb >= (gene.start.mb - cis.buffer) &
-			markerPos$mb <=(gene.end.mb + cis.buffer))
+			markerPos$mb <=(gene.start.mb + cis.buffer))
 		cis.markers<-rownames(cis.markers)
 	
 		# Subset of qtl data containing only cis markers
@@ -320,7 +276,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		if(length(peak.cis.marker)>1){
 			peak.cis.marker<-peak.cis.marker[
 				which.min(abs(markerPos$gmb[match(peak.cis.marker, 
-				rownames(markerPos))]-gene.tx.gmb))]
+				rownames(markerPos))]-gene.start.gmb))]
 		}
 	
 		peak.cis.pval<-as.numeric(subset(qtlmap.probeset, 
@@ -357,8 +313,7 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 		# Create spread sheet with probe-elimination results
 		write.csv(pe, file=paste(results.prefix, 
 			"probe_elimination_results.csv", sep="_"))
-
-
+			
 		# Plots
 		########
 		writeLines(paste(print.time(),"Generating graphs..."))
@@ -366,13 +321,13 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 			height = 8, width = 10.5)
 		mod.probePlot(traits=traits, probeset=probeset, marker=peak.cis.marker, 
 			genotypes=geno.mat, alleles=alleles[,"allele"], probes.pos=probes.pos,
-			probeset.loc=gene.tx.mb, marker.loc=markerPos[peak.cis.marker,"mb"])
+			probeset.loc=gene.start.mb, marker.loc=markerPos[peak.cis.marker,"mb"])
 		dev.off()
 		
 		# Export data needed to recreate probePlot
 		save(file=paste(probeset,"probePlot-Input.RData",sep="-"), list=c(
 			"traits","probeset", "peak.cis.marker", "geno.mat", "alleles",
-			"probes.pos", "gene.tx.mb", "markerPos"))
+			"probes.pos", "gene.start.mb", "markerPos"))
 
 		# Create custom probe-level QTL plot
 		pdf(paste(results.prefix,"probe-level_qtlPlot.pdf", sep="_"), 
@@ -386,14 +341,14 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 			height = 8, width = 10.5)
 		mod.QTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.probeset,
 			markerPos=markerPos, 
-			chrOffsets=chrOffsets, gene.gmb=gene.tx.gmb, plot.int=TRUE)
+			chrOffsets=chrOffsets, gene.gmb=gene.start.gmb, plot.int=TRUE)
 		dev.off()
 	
 		# Create custom probeset QTLplot
 		pdf(paste(results.prefix, "probeset_qtlPlot.pdf", sep="_"), 
 			height = 8, width = 10.5)
 		mod.QTLintplot(probeset=probeset, probesetQtlProfile=qtlmap.probeset,
-			markerPos=markerPos, chrOffsets=chrOffsets, gene.gmb=gene.tx.gmb, 
+			markerPos=markerPos, chrOffsets=chrOffsets, gene.gmb=gene.start.gmb, 
 			plot.int=FALSE, plot.sig=TRUE)
 		dev.off()	
 		setwd(orig.wd)
