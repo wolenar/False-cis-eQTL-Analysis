@@ -265,9 +265,9 @@ falseQTL.analysis <- function(probesets, geno.file, cel.dir, strain, label,
 	
 		# Ensure there is a marker with a pvalue <.05
 		if(sum(cis.probeset$pmarker<=.05)==0){
-			stop(paste("No markers within the specified cis eQTL buffer ",
+			writeLines(paste("No markers within the specified cis eQTL buffer ",
 			"region are significantly associated with ",
-			probeset,"'s expression.", sep=""), call.=FALSE)
+			probeset,"'s expression.", sep=""))
 		}
 	
 		peak.cis.marker<-as.character(cis.probeset$marker[which
